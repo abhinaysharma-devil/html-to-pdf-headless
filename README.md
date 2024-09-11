@@ -8,12 +8,8 @@
  npm i html-to-pdf-headless
 
 # Usage
- htmlToPdfHeadless.createPdf(HTML, styles)
-
-# HTML
- <h1>Hello World</h1>
- <p>Abhinay Shamra</p>
- <h3>My Name is Devil</h3>
+const htmlToPdfHeadless = require("html-to-pdf-headless");
+htmlToPdfHeadless.createPdf(HTML, styles)
 
 # Styles
  styles = {
