@@ -1,0 +1,33 @@
+{
+  "name": "html-to-pdf-headless",
+  "version": "1.0.7",
+  "description": "Generate PDF and DOCX files from HTML strings without headless browsers. Uses JSDOM, html-to-pdfmake, pdfmake, and docx under the hood.",
+  "main": "index.js",
+  "author": "Abhinay Sharma <panchalabhinay@gmail.com",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/abhinaysharma-devil/html-to-pdf-headless"
+  },
+  "license": "ISC",
+  "dependencies": {
+    "docx": "^9.6.1",
+    "html-to-pdf-headless": "file:",
+    "jsdom": "^25.0.0",
+    "pdfkit": "^0.18.0"
+  },
+  "engines": {
+    "node": ">=8.10.0"
+  },
+  "keywords": [
+    "dom",
+    "html",
+    "html to pdf",
+    "html to docx",
+    "pdf converter",
+    "docx converter",
+    "html to pdf without headless browser",
+    "pdf making in js",
+    "javascript pdf making",
+    "word document"
+  ]
+}

@@ -75,7 +75,7 @@ function htmlToPdfMake(htmlText, options) {
     p: {margin:[0, 5, 0, 10]},
     ul: {marginBottom:5,marginLeft:5},
     table: {marginBottom:5},
-    th: {bold:true, fillColor:'#EEEEEE'}
+    th: {bold:true}
   }
 
   // store the references to the images
@@ -200,11 +200,14 @@ function htmlToPdfMake(htmlText, options) {
           if (needStack) {
             ret.stack = ret.text.slice(0);
             delete ret.text;
-          } else {
-            // apply all the inhirent classes and styles from the parents
-            ret = this.applyStyle({ret:ret, parents:parents});
           }
         }
+        // Apply CSS classes and styles from the parent chain and the element itself.
+        // This must run for ALL elements: inline text, stack containers, and
+        // empty elements (e.g. colored layer divs). Previously only inline text
+        // nodes had applyStyle called, causing container/empty elements to lose
+        // properties like background, height, width, and border.
+        ret = this.applyStyle({ret:ret, parents:parents});
         parents.pop();
 
         switch(nodeName) {
@@ -228,6 +231,8 @@ function htmlToPdfMake(htmlText, options) {
                     var cells = (row.stack || row.text);
                     // for each cell
                     if (Array.isArray(cells)) {
+                      // Skip rows that have an empty cells array (e.g. from invalid HTML like <p> inside <tr>)
+                      if (cells.length === 0) return;
                       ret.table.body[rowIndex] = [];
                       cells.forEach(function(cell) {
                         ret.table.body[rowIndex].push(cell);
@@ -244,6 +249,11 @@ function htmlToPdfMake(htmlText, options) {
                         // do we have a rowSpan ?
                         if (cell.rowSpan > 1) hasRowSpan=true;
                       });
+                      rowIndex++;
+                    } else if (cells && cells !== '') {
+                      // Row content is not an array of cells (e.g. invalid HTML with <p> inside <tr> instead of <td>)
+                      // Wrap the content in a single cell to preserve it
+                      ret.table.body[rowIndex] = [typeof cells === 'string' ? {text: cells} : cells];
                       rowIndex++;
                     }
                  });
@@ -291,6 +301,18 @@ function htmlToPdfMake(htmlText, options) {
                   }
                 }
               }
+            }
+
+            // Guard: if table body is empty, convert to a stack container to avoid pdfmake crash
+            if (ret.table.body.length === 0) {
+              delete ret.table;
+              if (tbodies && tbodies.length > 0) {
+                ret.stack = tbodies;
+              } else {
+                ret.text = '';
+              }
+              ret = this.applyStyle({ret:ret, parents:parents.concat([element])});
+              break;
             }
 
             delete ret.stack;
@@ -637,7 +659,11 @@ function htmlToPdfMake(htmlText, options) {
             if (!ignoreNonDescendentProperties ||
                 (ignoreNonDescendentProperties &&
                   style.indexOf('margin') === -1 &&
-                  style.indexOf('border') === -1
+                  style.indexOf('border') === -1 &&
+                  style.indexOf('pageBreak') === -1 &&
+                  style !== 'background' &&
+                  style !== 'fillColor' &&
+                  style !== 'fillOpacity'
                 )
                ) {
               // 'decoration' can be an array
@@ -820,14 +846,37 @@ function htmlToPdfMake(htmlText, options) {
               break;
             }
             case "background-color": {
+              // background is not inherited in CSS — skip when processing parent elements
+              if (ignoreProperties) break;
               // if TH/TD and key is 'background', then we use 'fillColor' instead
               res = _this.parseColor(value);
               ret.push({key:(nodeName === 'TD' || nodeName === 'TH' ? "fillColor" : "background"), value:res.color});
               if (res.opacity < 1) ret.push({key:(nodeName === 'TD' || nodeName === 'TH' ? "fillOpacity" : "opacity"), value:res.opacity});
               break;
             }
+            case "background": {
+              // background is not inherited in CSS — skip when processing parent elements
+              if (ignoreProperties) break;
+              // Handle shorthand 'background' property — extract the color portion
+              // e.g. "background: #27ae60" or "background: white" or "background: rgb(0,0,0)"
+              // Ignore complex values like gradients
+              var bgValue = value.split(/\s+/)[0]; // take first token
+              if (bgValue && !bgValue.match(/url|gradient|none|inherit|initial/i)) {
+                res = _this.parseColor(bgValue);
+                if (res && res.color) {
+                  ret.push({key:(nodeName === 'TD' || nodeName === 'TH' ? "fillColor" : "background"), value:res.color});
+                  if (res.opacity < 1) ret.push({key:(nodeName === 'TD' || nodeName === 'TH' ? "fillOpacity" : "opacity"), value:res.opacity});
+                }
+              }
+              break;
+            }
             case "text-indent": {
               ret.push({key:"leadingIndent", value:_this.convertToUnit(value)});
+              break;
+            }
+            case "letter-spacing": {
+              var ls = _this.convertToUnit(value);
+              if (ls !== false) ret.push({key:"characterSpacing", value:ls});
               break;
             }
             case "white-space": {
@@ -844,7 +893,7 @@ function htmlToPdfMake(htmlText, options) {
                 if (!ignoreProperties) borders.push({key:key, value:value});
               } else {
                 // ignore some properties
-                if (ignoreProperties && (key.indexOf("margin-") === 0 || key === 'width' || key === 'height')) break;
+                if (ignoreProperties && (key.indexOf("margin-") === 0 || key === 'width' || key === 'height' || key.indexOf('page-break') === 0 || key === 'background' || key === 'background-color')) break;
                 // for IMG only (see issue #181)
                 if (nodeName === "IMG" && (key === 'width' || key === 'height')) {
                   ret.push({key:key, value: _this.convertToUnit(value)});
@@ -853,6 +902,15 @@ function htmlToPdfMake(htmlText, options) {
 
                 // padding is not supported by PDFMake
                 if (key.indexOf("padding") === 0) break;
+                // CSS-only properties not supported by pdfmake — ignore them
+                if (['display','max-width','min-width','max-height','min-height',
+                  'box-sizing','border-collapse','border-radius','border-spacing',
+                  'vertical-align','overflow','position','float','clear',
+                  'visibility','cursor','z-index','outline','box-shadow',
+                  'text-shadow','transform','transition','animation',
+                  'writing-mode','direction',
+                  '-webkit-font-smoothing','-ms-text-size-adjust','-webkit-text-size-adjust'
+                ].indexOf(key) > -1) break;
                 if (key.indexOf("-") > -1) key=_this.toCamelCase(key);
                 if (value) {
                   // convert value to a 'pt' when possible
@@ -898,9 +956,14 @@ function htmlToPdfMake(htmlText, options) {
           }
         }
       });
-      // fill the gaps
+      // fill the gaps — when only specific sides are set (e.g. border-top),
+      // missing sides default to false (no border), not true.
+      // Only use true as default when the shorthand 'border' was used (all sides).
+      var hasShorthand = borders.some(function(b) {
+        return b.key === 'border';
+      });
       for (var i=0; i<4; i++) {
-        if (border.length > 0 && typeof border[i] === "undefined") border[i]=true;
+        if (border.length > 0 && typeof border[i] === "undefined") border[i] = hasShorthand;
         if (borderColor.length > 0 && typeof borderColor[i] === "undefined") borderColor[i]='#000000';
       }
       if (border.length > 0) ret.push({key:'border', value:border});
