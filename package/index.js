@@ -9,7 +9,16 @@ createpdfdependency.vfs = pdfFonts.pdfMake.vfs;
 
 // Load standard PDF font AFM data into the virtual file system.
 // This enables Times (serif), Courier (monospace), and Helvetica (sans-serif).
-var afmDir = path.join(__dirname, "node_modules", "pdfkit", "js", "data");
+// Use require.resolve to find pdfkit regardless of where npm hoists it.
+var pdfkitEntry = require.resolve("pdfkit");
+var afmDir = path.join(path.dirname(pdfkitEntry), "data");
+// Fallback: if the resolved path doesn't contain the data dir, try standard layout
+if (!fs.existsSync(afmDir)) {
+  afmDir = path.join(path.dirname(pdfkitEntry), "..", "data");
+}
+if (!fs.existsSync(afmDir)) {
+  afmDir = path.join(__dirname, "node_modules", "pdfkit", "js", "data");
+}
 var afmFiles = [
   "Courier.afm", "Courier-Bold.afm", "Courier-Oblique.afm", "Courier-BoldOblique.afm",
   "Helvetica.afm", "Helvetica-Bold.afm", "Helvetica-Oblique.afm", "Helvetica-BoldOblique.afm",
